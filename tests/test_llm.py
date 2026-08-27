@@ -6,6 +6,17 @@ import pytest
 from dispatch_assistant.knowledge import Evidence
 
 
+CONFIG_ENV_NAMES = (
+    "LLM_API_KEY",
+    "LLM_BASE_URL",
+    "LLM_MODEL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+    "DEEPSEEK_API_KEY",
+)
+
+
 class FakeCompletions:
     def __init__(self, content: str | None):
         self.content = content
@@ -52,23 +63,50 @@ def test_abstains_without_evidence_and_does_not_call_api() -> None:
 
 def test_requires_environment_key_when_evidence_exists(monkeypatch) -> None:
     llm = importlib.import_module("dispatch_assistant.llm")
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    for name in CONFIG_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
 
-    with pytest.raises(llm.DeepSeekError, match="DEEPSEEK_API_KEY"):
+    with pytest.raises(llm.LLMError, match="LLM_API_KEY"):
         llm.answer_question("什么是功率平衡？", make_evidence(), client=None)
 
 
-def test_calls_current_deepseek_model_with_thinking_disabled() -> None:
+def test_supports_generic_openai_compatible_provider(monkeypatch) -> None:
     llm = importlib.import_module("dispatch_assistant.llm")
+    for name in CONFIG_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("LLM_MODEL", "example-model")
     client, completions = make_client("功率平衡用于约束供需关系。[KB-002, p.10]")
+    created_kwargs = {}
 
-    answer = llm.answer_question("什么是功率平衡？", make_evidence(), client=client)
+    def fake_openai(**kwargs):
+        created_kwargs.update(kwargs)
+        return client
+
+    monkeypatch.setattr(llm, "OpenAI", fake_openai)
+
+    answer = llm.answer_question("什么是功率平衡？", make_evidence())
 
     assert "[KB-002, p.10]" in answer
-    assert llm.BASE_URL == "https://api.deepseek.com"
-    assert completions.kwargs["model"] == "deepseek-v4-flash"
-    assert completions.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert created_kwargs == {"api_key": "test-key", "base_url": "https://example.test/v1"}
+    assert completions.kwargs["model"] == "example-model"
+    assert "extra_body" not in completions.kwargs
     assert "Power balance and water balance constraints." in completions.kwargs["messages"][1]["content"]
+
+
+def test_deepseek_shortcut_keeps_default_settings(monkeypatch) -> None:
+    llm = importlib.import_module("dispatch_assistant.llm")
+    for name in CONFIG_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    client, completions = make_client("功率平衡用于约束供需关系。[KB-002, p.10]")
+    monkeypatch.setattr(llm, "OpenAI", lambda **kwargs: client)
+
+    llm.answer_question("什么是功率平衡？", make_evidence())
+
+    assert completions.kwargs["model"] == llm.DEFAULT_DEEPSEEK_MODEL
+    assert completions.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 def test_rejects_unretrieved_citation() -> None:
@@ -91,7 +129,7 @@ def test_rejects_empty_model_content() -> None:
     llm = importlib.import_module("dispatch_assistant.llm")
     client, _ = make_client(None)
 
-    with pytest.raises(llm.DeepSeekError, match="返回了空内容"):
+    with pytest.raises(llm.LLMError, match="返回了空内容"):
         llm.answer_question("问题", make_evidence(), client=client)
 
 
@@ -99,5 +137,5 @@ def test_wraps_api_failure_without_retrying() -> None:
     llm = importlib.import_module("dispatch_assistant.llm")
     client = SimpleNamespace(chat=SimpleNamespace(completions=RaisingCompletions()))
 
-    with pytest.raises(llm.DeepSeekError, match="DeepSeek API 调用失败"):
+    with pytest.raises(llm.LLMError, match="大模型 API 调用失败"):
         llm.answer_question("问题", make_evidence(), client=client)

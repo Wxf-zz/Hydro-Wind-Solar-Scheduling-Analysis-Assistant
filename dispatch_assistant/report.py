@@ -5,7 +5,7 @@ import re
 
 from dispatch_assistant.analysis import AnalysisResult, Anomaly
 from dispatch_assistant.knowledge import Evidence
-from dispatch_assistant.llm import call_deepseek
+from dispatch_assistant.llm import call_llm
 
 
 class ReportValidationError(ValueError):
@@ -124,7 +124,7 @@ def generate_report(
         "anomalies": [item.__dict__ for item in result.anomalies],
         "evidence": [item.__dict__ for item in evidence],
     }
-    commentary = call_deepseek(
+    commentary = call_llm(
         system_prompt,
         json.dumps(payload, ensure_ascii=False),
         client=client,

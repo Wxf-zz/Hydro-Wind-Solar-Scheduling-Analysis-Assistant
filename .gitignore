@@ -10,3 +10,7 @@ outputs/
 # Local/private analysis inputs and knowledge sources
 *.csv
 *.pdf
+
+# Generated release artifacts
+dist/
+*.zip

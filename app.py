@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,7 +15,12 @@ from dispatch_assistant.analysis import (
 )
 from dispatch_assistant.charts import build_figures
 from dispatch_assistant.knowledge import Evidence, KnowledgeIndex, build_knowledge_index
-from dispatch_assistant.llm import DeepSeekError, GroundingError, answer_question
+from dispatch_assistant.llm import (
+    LLMError,
+    GroundingError,
+    answer_question,
+    is_llm_configured,
+)
 from dispatch_assistant.report import ReportValidationError, generate_report
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -80,7 +84,7 @@ def anomaly_frame(result: AnalysisResult) -> pd.DataFrame:
 
 st.set_page_config(page_title="水风光调度智能分析助手", layout="wide")
 st.title("水风光调度智能分析助手")
-st.caption("固定 CSV 校验与计算 · 本地资料检索 · DeepSeek 受约束生成")
+st.caption("固定 CSV 校验与计算 · 本地资料检索 · 可配置大模型生成")
 
 uploaded = st.file_uploader("上传调度结果 CSV", type=["csv"])
 if uploaded is None:
@@ -120,7 +124,7 @@ with analysis_tab:
         st.success("未发现符合当前五类固定规则的异常。")
 
 with qa_tab:
-    st.write("系统先在两篇已批准论文中检索原文，再让 DeepSeek 只根据这些证据组织回答。")
+    st.write("系统先在本地资料中检索原文，再让已配置的大模型只根据这些证据组织回答。")
     if knowledge_index is None:
         st.info(KNOWLEDGE_BASE_MISSING_MESSAGE)
     question = st.text_input(
@@ -138,17 +142,17 @@ with qa_tab:
             show_evidence(evidence)
             if not evidence:
                 st.info("当前知识库没有足够依据回答这个问题。")
-            elif not os.getenv("DEEPSEEK_API_KEY"):
-                st.info("证据检索已完成；设置本机 DEEPSEEK_API_KEY 后可生成带引用回答。")
+            elif not is_llm_configured():
+                st.info("证据检索已完成；配置大模型后可生成带引用回答。")
             else:
                 try:
                     st.subheader("回答")
                     st.write(answer_question(question, evidence))
-                except (DeepSeekError, GroundingError) as exc:
+                except (LLMError, GroundingError) as exc:
                     st.error(str(exc))
 
 with report_tab:
-    st.write("Python 固定报告中的数字、单位、异常和来源；DeepSeek 只补充不含数字的定性解读。")
+    st.write("Python 固定报告中的数字、单位、异常和来源；大模型只补充不含数字的定性解读。")
     if knowledge_index is None:
         st.info(KNOWLEDGE_BASE_MISSING_MESSAGE)
         report_evidence = []
@@ -157,14 +161,14 @@ with report_tab:
     st.subheader("报告采用的资料依据")
     show_evidence(report_evidence)
 
-    api_available = bool(os.getenv("DEEPSEEK_API_KEY"))
+    api_available = is_llm_configured()
     if not api_available:
-        st.info("未检测到 DEEPSEEK_API_KEY：本地分析可用，报告生成暂不可用。")
+        st.info("未完成大模型配置：本地分析可用，带 AI 解读的报告暂不可用。")
 
     if st.button("生成 Markdown 报告", type="primary", disabled=not api_available):
         try:
             report = generate_report(result, report_evidence)
-        except (DeepSeekError, ReportValidationError) as exc:
+        except (LLMError, ReportValidationError) as exc:
             st.error(str(exc))
         else:
             st.subheader("报告预览")
