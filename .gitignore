@@ -1,0 +1,12 @@
+.worktrees/
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+.streamlit/secrets.toml
+outputs/
+
+# Local/private analysis inputs and knowledge sources
+*.csv
+*.pdf
